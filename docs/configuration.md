@@ -45,7 +45,7 @@ checkout, so a hook a feature adds mid-flight governs that feature's own run.
 
 | | |
 |---|---|
-| `BRAID_AGENTS` | which agents this repository supports, best first (`claude codex generic`). A committed decision, narrowed by `braid setup --add-agent` |
+| `BRAID_AGENTS` | which agents this repository supports, best first (`claude codex cursor-agent generic`). A committed decision, narrowed by `braid setup --add-agent` |
 | `BRAID_AGENT` | one machine's or one session's preference |
 | `BRAID_AGENT_DESIGN`<br>`BRAID_AGENT_ORCHESTRATE`<br>`BRAID_AGENT_WORK` | override one seat |
 | `BRAID_AGENT_CMD` | for `BRAID_AGENT=generic`: the command line, with `{model}` and `{prompt}` |

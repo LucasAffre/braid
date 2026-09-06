@@ -76,7 +76,8 @@ mapping in the same file. Do not invent labels.
 `braid.sh` lists them, best first. `braid doctor` shows what is installed here.
 
 Adding one is a decision rather than a detection, and it costs something: an agent
-without hooks takes its contract from the prompt instead of from a session hook, and its
+without hooks braid installs into takes its contract from the prompt instead of from
+a session hook, and its
 status from `.braid/finish.sh` instead of a stop hook. Both work. But if a coworker will
 run Codex while they run Claude, the list has to say so, and somebody has to be willing
 to say it works here.
