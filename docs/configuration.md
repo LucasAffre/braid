@@ -47,7 +47,7 @@ checkout, so a hook a feature adds mid-flight governs that feature's own run.
 |---|---|
 | `BRAID_AGENTS` | which agents this repository supports, best first (`claude codex generic`). A committed decision: `braid setup` asks for it when it first writes `braid.sh`, `braid setup --agents "codex claude"` restates it, `braid setup --add-agent NAME` appends to it |
 | `BRAID_AGENT` | one machine's or one session's preference |
-| `BRAID_AGENT_DESIGN`<br>`BRAID_AGENT_ORCHESTRATE`<br>`BRAID_AGENT_WORK` | override one seat |
+| `BRAID_AGENT_DESIGN`<br>`BRAID_AGENT_ORCHESTRATE`<br>`BRAID_AGENT_WORK` | pin one seat. In `braid.sh` it is a repository decision — the orchestrator on the agent with hooks, workers on another — and `braid setup` offers to write them |
 | `BRAID_AGENT_CMD` | for `BRAID_AGENT=generic`: the command line, with `{model}` and `{prompt}` |
 
 Resolution, highest priority first:
@@ -79,7 +79,8 @@ worker's model comes from the complexity its slice declares.
 
 Those defaults come from the agent adapter — `lib/agents/claude.sh` — which is the one
 file a vendor's model names are allowed to appear in. They are a guess about somebody
-else's budget, and they are the largest lever on what a wave costs, so:
+else's budget, and they are the largest lever on what a wave costs, so `braid setup` puts
+the resolved table in front of you on a first run and writes down whatever you change:
 
 ```bash
 : "${BRAID_MODEL_DESIGN:=sonnet}"      # in braid.sh — committed, for everyone
@@ -87,7 +88,14 @@ braid setup --model sonnet             # this session
 braid spawn 04-migration --model opus  # this one slice
 ```
 
-An adapter that maps nothing — Codex — lets its own CLI choose unless you set these.
+An adapter that maps nothing — Codex — lets its own CLI choose unless you set these, so
+every seat and every complexity level runs whatever `~/.codex/config.toml` names. That is
+a real answer, not a gap: it follows you when you change it there. It does mean a
+`complexity:` level buys nothing until you say what it means here. Codex also has no tier
+alias to lean on — Claude's `opus` and `sonnet` stay put while the model behind them
+moves, while every name Codex offers carries its version — so take the names from the
+CLI's own picker rather than from memory.
+
 `braid doctor` prints the resolved table for every seat and every level.
 
 ### How the agent is launched

@@ -206,7 +206,7 @@ for seat in design orchestrate work; do
             else
                 model=$(agent_model "$seat")
             fi
-            printf '  %sok%s    %-12s %-8s via %-22s %s\n' \
+            printf '  %sok%s    %-12s %-8s via %-24s %s\n' \
                 "$_C_GREEN" "$_C_OFF" "$seat" "$name" "$why" "${model:-(the CLI chooses)}"
         ) >&2
     else

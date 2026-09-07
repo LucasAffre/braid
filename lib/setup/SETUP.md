@@ -86,19 +86,25 @@ is how it gets added later.
 
 ### What each seat and each complexity costs
 
-Run `braid doctor` and **show them the resolved table** — which model each seat gets and
-which model a `low`, `standard` and `high` slice gets. Do not skip this because the
-adapter already has an answer: that answer is a default somebody else chose, it is the
-single biggest lever on what a wave costs, and this is the only moment anyone is looking.
+**Also already asked.** `braid setup` showed the resolved table and offered to change it
+before this session opened — it had to, because the model running this session is one of
+the rows. Run `braid doctor`, show them where it landed, and confirm it in one line.
 
-Ask one question: *is that the right shape for this repository?* Then record only what
-they want changed, in `braid.sh`:
+Two things are worth checking rather than restating:
 
-    : "${BRAID_MODEL_DESIGN:=…}"  : "${BRAID_MODEL_ORCHESTRATE:=…}"
+- **Rows that say "the CLI chooses".** For an agent whose adapter maps nothing — Codex is
+  one — that means every seat and every complexity level runs the same model, whatever
+  their CLI is configured for, so `complexity: low` and `complexity: high` cost the same.
+  That is a fine answer for a repository that does not care, and a surprise for one that
+  thought it had tiers. Say which of the two this is.
+- **Names.** Only offer a model name you have seen the installed CLI list — `claude` and
+  `codex` both have their own picker. Do not recall one from training; those move, and a
+  wrong one fails at launch rather than at the moment you wrote it.
+
+Record changes in `braid.sh`, where setup put the others:
+
+    : "${BRAID_MODEL_DESIGN:=…}"  : "${BRAID_MODEL_ORCHESTRATE:=…}"  : "${BRAID_MODEL_WORK:=…}"
     : "${BRAID_MODEL_LOW:=…}"  : "${BRAID_MODEL_STANDARD:=…}"  : "${BRAID_MODEL_HIGH:=…}"
-
-For an agent whose adapter maps nothing — Codex is one — there is no default to show and
-the same question has to be answered from scratch.
 
 ## 4. How this house decides what to build
 

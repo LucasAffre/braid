@@ -50,8 +50,10 @@ braid setup      # scaffolds braid.sh and the hooks, then opens a session to fil
 braid doctor     # confirms this machine can run a wave
 ```
 
-The first run asks which agents this repository will use before it opens one — a repo
-whose people run Codex should not have its setup session opened by Claude. `braid setup`
+The first run asks two things before it opens anything: which agents this repository
+uses, and what each seat and complexity level costs. Both have to come first — a repo
+whose people run Codex should not have its setup session opened by Claude, and the model
+that session runs on is one of the rows in the table. `braid setup`
 is re-runnable: run it again when the test suite changes or a coworker arrives with a
 different agent.
 
@@ -119,8 +121,9 @@ braid setup --model sonnet            # or just this session
 braid spawn 04-migration --model opus # or just this slice
 ```
 
-`braid doctor` prints the whole table resolved, and `braid setup` asks you to confirm it
-rather than assuming you agree. [`docs/configuration.md`](docs/configuration.md) has both
+`braid setup` puts that table in front of you the first time it writes a `braid.sh` —
+every seat, every complexity level, and what each one resolves to — and writes down only
+what you change. `braid doctor` prints it resolved at any time. [`docs/configuration.md`](docs/configuration.md) has both
 families in full — the seats and the complexity levels are different variables and answer
 different questions.
 

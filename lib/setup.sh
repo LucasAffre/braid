@@ -116,33 +116,53 @@ print(" ".join(match.group(1).split()) if match else "")
 PY
 }
 
-# Rewrite the list, in place, keeping the `:=` form so the environment can still win
-# for one command. Duplicates are dropped and order is preserved, because the order is
-# the decision: BRAID_AGENTS is read best-first.
-agents_write() {
-    python3 - "$1" <<'PY'
+# Set one `: "${VAR:=value}"` in braid.sh — rewritten where the line exists, appended
+# where it does not. Always the `:=` form, which is what lets the environment win for a
+# single command without editing a committed file.
+#
+# A third argument is a heading for whatever is being appended, written once. Every other
+# line in this file explains itself; a block of six assignments arriving at the end with
+# nothing over them reads like something that fell in.
+braid_sh_set() {
+    python3 - "$1" "$2" "${3:-}" <<'PY'
 import pathlib
 import re
 import sys
 
-seen, agents = set(), []
-for name in sys.argv[1].split():
-    if name not in seen:
-        seen.add(name)
-        agents.append(name)
-line = " ".join(agents)
-
+name, value, heading = sys.argv[1], sys.argv[2], sys.argv[3]
 path = pathlib.Path("braid.sh")
 text = path.read_text(encoding="utf-8")
-pattern = re.compile(r'(?m)^(: "\$\{BRAID_AGENTS:=)([^}]*)(\}")')
+pattern = re.compile(r'(?m)^(: "\$\{%s:=)([^}]*)(\}")' % re.escape(name))
 if pattern.search(text):
-    # A literal replacement, never a template: re.sub reads \g and \1 in the
-    # replacement string, and an agent name is user input.
-    text = pattern.sub(lambda m: m.group(1) + line + m.group(3), text, count=1)
+    # A literal replacement, never a template: re.sub reads \g and \1 in a replacement
+    # string, and everything being written here came from somebody typing it.
+    text = pattern.sub(lambda m: m.group(1) + value + m.group(3), text, count=1)
 else:
-    text += f'\n: "${{BRAID_AGENTS:={line}}}"\n'
+    lines = text.rstrip("\n").split("\n")
+    block = ""
+    if heading and heading not in text:
+        block = "\n\n# " + heading + "\n"
+    elif lines and lines[-1].startswith(': "${BRAID_'):
+        # Several of these are appended in a row, and a blank line between each turns
+        # one decision into a scattered list.
+        block = "\n"
+    else:
+        block = "\n\n"
+    text = "\n".join(lines) + block + ': "${%s:=%s}"' % (name, value) + "\n"
 path.write_text(text, encoding="utf-8")
 PY
+}
+
+# Order is the decision — BRAID_AGENTS is read best-first — so duplicates are dropped
+# rather than sorted away.
+agents_write() {
+    local name seen="" ordered=""
+    for name in $1; do
+        case " $seen " in *" $name "*) continue ;; esac
+        seen="$seen $name"
+        ordered="$ordered $name"
+    done
+    braid_sh_set BRAID_AGENTS "${ordered# }"
 }
 
 # Asked once, at the moment braid.sh is created, and never again — the list is a
@@ -199,6 +219,163 @@ agents_ask() {
     done
 
     printf '%s' "${reply# }"
+}
+
+# --- which agent and model runs each seat ---------------------------------------
+
+# What a seat resolves to right now: "<agent> <model>", or nothing when no agent in the
+# repository's list is installed here. Loaded in a subshell, because agent_load sources
+# an adapter into the shell that calls it and there are six of these.
+seat_now() {
+    (
+        agent_load "${1:?seat}" 2>/dev/null || exit 1
+        printf '%s %s' "$BRAID_AGENT_RESOLVED" "$(agent_model "$1")"
+    ) 2>/dev/null
+}
+
+# The same for a complexity level, which has no agent of its own: a slice says how much
+# judgement the work needs and the agent on the `work` seat says what that is here.
+level_now() {
+    (
+        agent_load work 2>/dev/null || exit 1
+        agent_complexity "${1:?level}"
+    ) 2>/dev/null
+}
+
+# Refused the way the seat itself would refuse it, but without taking setup down with
+# it: agent_check_model dies, which is right when a wave is about to start and wrong
+# when somebody is typing an answer and can simply be asked again.
+model_ok() {
+    (
+        agent_load "${1:?seat}" 2>/dev/null || exit 0
+        agent_check_model "$2"
+    ) >/dev/null 2>&1
+}
+
+# How an empty model reads. An adapter that names none is not missing anything: it means
+# the CLI picks, which is the right answer for a vendor whose names move faster than a
+# committed file can.
+shown() { printf '%s' "${1:-(the CLI chooses)}"; }
+
+# One answer, with the current value as the default and empty meaning "keep it".
+ask_value() {
+    local label="${1:?label}" current="${2:-}" answer
+    printf '  %-22s [%s]: ' "$label" "$(shown "$current")" >&2
+    read -r answer || answer=""
+    printf '%s' "$answer"
+}
+
+# Ask for one model, refuse what the seat's agent would refuse, and report the
+# assignment rather than performing it. It runs inside a command substitution, so it
+# cannot write anything the caller would see — which is the whole reason the answers are
+# collected first and applied once, together.
+ask_model() {
+    local seat="${1:?seat}" label="${2:?label}" current="${3:-}" tier="${4:-$1}" model
+    while :; do
+        model=$(ask_value "$label" "$current")
+        [[ -n "$model" ]] || return 0
+        if model_ok "$seat" "$model"; then
+            printf '%s %s' "$(seat_var MODEL "$tier")" "$model"
+            return 0
+        fi
+        warn "that is not a model $(seat_now "$seat" | cut -d' ' -f1) accepts"
+    done
+}
+
+# The table, then one question about the whole of it.
+#
+# This is the largest lever there is on what a wave costs, and every value in it is a
+# default from an adapter — a guess about somebody else's budget. It is also the only
+# moment anybody is looking: after this, the table is something you have to know to go
+# and ask `braid doctor` for.
+#
+# Asked here rather than in the session below for the same reason the agent list is: the
+# session is opened by the design seat, so its model is already spent by the time an
+# agent could ask you about it.
+seats_ask() {
+    local seat level agent model answer row writes="" agents=0
+
+    for seat in $BRAID_AGENTS; do
+        agents=$((agents + 1))
+    done
+
+    echo >&2
+    note "which agent and model runs each seat?"
+    for seat in design orchestrate work; do
+        row=$(seat_now "$seat")
+        [[ -n "$row" ]] || {
+            meh "no agent resolves for the $seat seat — nothing to ask about yet"
+            return 1
+        }
+        info "$(printf '%-13s %-9s %s' "$seat" "${row%% *}" "$(shown "${row#* }")")"
+    done
+    echo >&2
+    note "and what a slice's complexity means, on the work seat?"
+    for level in low standard high; do
+        info "$(printf '%-13s %-9s %s' "$level" "" "$(shown "$(level_now "$level")")")"
+    done
+    echo >&2
+    info "every value above is the adapter's default — a guess about somebody else's"
+    info "budget — and it is the biggest lever there is on what a wave costs."
+
+    printf '\n  change any of it? [y/N] ' >&2
+    read -r answer || answer=""
+    case "$answer" in
+        [yY]*) ;;
+        *) return 0 ;;
+    esac
+    echo >&2
+
+    for seat in design orchestrate work; do
+        row=$(seat_now "$seat")
+        # Only where there is a choice to make. A repository that supports one agent
+        # answered this one question ago.
+        if [[ "$agents" -gt 1 ]]; then
+            agent=$(ask_value "$seat agent" "${row%% *}")
+            if [[ -n "$agent" ]]; then
+                if agent_supported "$agent" && agent_usable "$agent"; then
+                    # Written and exported at once: the seats below resolve against it,
+                    # and so does the session this command opens when it is done.
+                    braid_sh_set "$(seat_var AGENT "$seat")" "$agent" \
+                        "Which agent takes which seat. Only the seats pinned here; the rest fall to BRAID_AGENTS, in order."
+                    export "$(seat_var AGENT "$seat")=$agent"
+                    row=$(seat_now "$seat")
+                elif agent_supported "$agent"; then
+                    warn "'$agent' is not installed here — left alone"
+                else
+                    warn "'$agent' is not in this repository's list ($BRAID_AGENTS) — left alone"
+                fi
+            fi
+        fi
+        answer=$(ask_model "$seat" "$seat model" "${row#* }")
+        [[ -z "$answer" ]] || writes="$writes$answer
+"
+    done
+
+    for level in low standard high; do
+        answer=$(ask_model work "complexity: $level" "$(level_now "$level")" "$level")
+        [[ -z "$answer" ]] || writes="$writes$answer
+"
+    done
+
+    [[ -n "$writes" ]] || {
+        note "nothing changed — every seat keeps the adapter's default"
+        return 0
+    }
+
+    # Written together, under a heading, rather than one line at a time as they were
+    # answered. Six assignments scattered down a file nobody reads twice are six things
+    # to find later; a block with a sentence over it is one.
+    # A here-string, not a pipe: a pipe puts the loop in a subshell and the exports
+    # below would be lost with it — and the design seat's model has to reach the session
+    # this command opens in a moment, which braid_config read braid.sh too early to see.
+    while read -r var value; do
+        [[ -n "$var" ]] || continue
+        braid_sh_set "$var" "$value" \
+            "What each seat and each complexity level costs. braid doctor resolves the whole table."
+        export "$var=$value"
+    done <<<"$writes"
+    ok "braid.sh records what you changed; the rest stays the adapter's"
 }
 
 # --- --add-agent --------------------------------------------------------------
@@ -287,6 +464,13 @@ if [[ -z "${BRAID_AGENTS_ENV:-}" ]]; then
         "braid.sh supports '$LISTED', and none of those is installed here." \
         "  installed:  $(agents_installed || echo none)" \
         "  braid setup --agents '<best first>'    say what this repository uses")"
+fi
+
+# Which model each seat and each complexity level gets. Under the same conditions as the
+# question above, and immediately after it, because it is the same conversation: you have
+# just said which agents run here, and this is what they cost.
+if [[ "$FRESH" -eq 1 && "$SCAFFOLD_ONLY" -eq 0 && "$ASSUME_YES" -eq 0 && -t 0 ]]; then
+    seats_ask || true
 fi
 
 mkdir -p "$BRAID_FEATURES_DIR"
