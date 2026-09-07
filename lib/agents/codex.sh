@@ -1,15 +1,29 @@
 #!/usr/bin/env bash
 # Adapter — OpenAI Codex CLI.
 #
-# Codex has hooks — ~/.codex/hooks.json, and the schema is the same shape as Claude
-# Code's. braid does not install into it yet, and the reason is not effort:
+# Codex has hooks, natively, and they are the same shape as Claude Code's down to the
+# event names: SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, PermissionRequest,
+# Stop, SubagentStart, SubagentStop. They can also be committed per repository, in
+# <repo>/.codex/hooks.json, exactly like Claude's .claude/settings.json. So the reason
+# braid does not install into them is not that they are missing, or global.
 #
-#   - it is registered per machine, not per repository. Claude's live in a committed
-#     .claude/settings.json, which is what makes "this repository is set up for braid" a
-#     reviewable fact. A global hook is a fact about a laptop.
-#   - hooks are gated by a trust model, with hashes recorded in config.toml. What braid
-#     would have to do to register one honestly has not been verified here, and
-#     --dangerously-bypass-hook-trust is not something a tool should pass on your behalf.
+# It is the trust model. Every hook entry has to be trusted by hash before it runs, and
+# the trust is recorded in ~/.codex/config.toml under a key that begins with the
+# **absolute path** of the file it came from:
+#
+#   [hooks.state."/abs/path/.codex/hooks.json:pre_tool_use:0:0"]
+#   trusted_hash = "sha256:…"
+#
+# Which braid cannot satisfy, because braid's whole shape is worktrees. Every worker gets
+# a fresh checkout at a path that has never existed before, so a committed hooks file
+# arrives there untrusted no matter how many times anybody trusted it in the primary
+# checkout. There is no "trust it once for this repository" to ask for.
+#
+# And it fails silently. An untrusted hooks file under `codex exec` does not run and
+# nothing is printed about it — checked, in a real repository, not assumed. A guard you
+# committed, reviewed, and believed in would simply never fire, in every worker, forever.
+# --dangerously-bypass-hook-trust would defeat it, and a tool does not pass that on your
+# behalf.
 #
 # So for now two things arrive by other means, and braid handles both:
 #
