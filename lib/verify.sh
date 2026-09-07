@@ -56,7 +56,7 @@ case "${1:-}" in
         ;;
     "") verify_one "$(current_worktree)" ;;
     -h | --help)
-        sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//' >&2
+        sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//' >&2
         exit 0
         ;;
     *)

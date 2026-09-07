@@ -40,7 +40,7 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         -h | --help)
-            sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//' >&2
+            sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//' >&2
             exit 0
             ;;
         -*) die "unknown argument: $1" ;;
