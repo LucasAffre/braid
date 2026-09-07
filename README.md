@@ -50,8 +50,10 @@ braid setup      # scaffolds braid.sh and the hooks, then opens a session to fil
 braid doctor     # confirms this machine can run a wave
 ```
 
-`braid setup` is re-runnable: run it again when the test suite changes or a coworker
-arrives with a different agent.
+The first run asks which agents this repository will use before it opens one — a repo
+whose people run Codex should not have its setup session opened by Claude. `braid setup`
+is re-runnable: run it again when the test suite changes or a coworker arrives with a
+different agent.
 
 ## Requirements
 
@@ -126,8 +128,18 @@ different questions.
 
 Which agents are installed is a fact about a machine; which agents a repository supports
 is a committed decision. A preference outside the repository's list is an error rather
-than a silent fallback — adding one means confirming the table above holds *here*, so it
-goes through `braid setup --add-agent <name>`.
+than a silent fallback — adding one means confirming the table above holds *here*.
+
+`braid setup` asks the question the first time it writes a `braid.sh`, before it opens
+anything: it shows what is on your PATH and what braid has an adapter for, and you say
+which of them this repository uses, best first. That has to come first, because the
+session that fills in the rest of `braid.sh` is itself opened by the first agent on that
+list. Afterwards:
+
+```bash
+braid setup --agents "codex claude"   # say it outright, or re-decide it
+braid setup --add-agent codex         # add one to what is already there
+```
 
 ### Where workers run
 

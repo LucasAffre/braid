@@ -123,6 +123,19 @@ agents_installed() {
     [[ -n "$found" ]] && printf '%s' "${found# }"
 }
 
+# Every adapter braid ships, whether or not this machine can run it. The other half of
+# the pair above: `agents_installed` answers "what could this machine run today",
+# this one answers "what could this repository choose" — which is the question a team
+# is actually deciding, and the reason a name that is not on this list is a typo
+# rather than a preference.
+agents_shipped() {
+    local name found=""
+    for name in "$BRAID_HOME"/lib/agents/*.sh; do
+        found="$found $(basename "$name" .sh)"
+    done
+    printf '%s' "${found# }"
+}
+
 # Source the adapter for a seat. After this the agent_* functions below are the
 # adapter's, and BRAID_AGENT_RESOLVED says which one answered.
 agent_load() {

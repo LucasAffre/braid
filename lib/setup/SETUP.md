@@ -71,15 +71,18 @@ braid parses them. Say that explicitly; it is the thing people translate.
 If they use the tracker option, and they already have a label vocabulary, record the
 mapping in the same file. Do not invent labels.
 
-## 3. Which agents this repository supports
+## 3. Which agents this repository supports, and what each seat costs
 
-`braid.sh` lists them, best first. `braid doctor` shows what is installed here.
+**The list is already answered.** `braid setup` asked for it before it opened this
+session — it had to, because you are the first agent on it. Read `BRAID_AGENTS` out of
+`braid.sh`, say it back in one line, and only re-open the question if they want it
+changed. Do not ask it again from scratch.
 
-Adding one is a decision rather than a detection, and it costs something: an agent
-without hooks takes its contract from the prompt instead of from a session hook, and its
-status from `.braid/finish.sh` instead of a stop hook. Both work. But if a coworker will
-run Codex while they run Claude, the list has to say so, and somebody has to be willing
-to say it works here.
+What is worth adding, once, if the list holds one name: a coworker running a different
+agent needs to appear here, and that costs something — an agent without hooks takes its
+contract from the prompt instead of from a session hook, and its status from
+`.braid/finish.sh` instead of a stop hook. Both work. `braid setup --add-agent <name>`
+is how it gets added later.
 
 ### What each seat and each complexity costs
 

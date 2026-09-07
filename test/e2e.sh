@@ -119,6 +119,46 @@ has "and points at where the whole table is" "braid doctor" "$OUT"
 # With nobody there to answer, it proceeds. Blocking on a prompt that cannot be seen is
 # worse than the thing the prompt guards against — it would hang every CI run.
 hasnt "and does not stop to ask when no one is there" "open it?" "$OUT"
+hasnt "nor which agents this repository uses" "best first" "$OUT"
+
+# Which agents a repository supports is a decision it makes and commits, and until it
+# could be said at scaffold time every new braid.sh said `claude` whatever the person
+# actually ran — after which setup opened a Claude session to tell them about it. The
+# wrong agent, asking the wrong question, about an answer already written down.
+listed() {
+    # shellcheck disable=SC2016  # the braid.sh line is literal text, not an expansion
+    printf ': "${BRAID_AGENTS:=%s}"' "$*"
+}
+"$BRAID" setup --scaffold --agents "codex claude" >/dev/null 2>&1
+has "setup takes the repository's agents, best first" "$(listed codex claude)" "$(cat braid.sh)"
+OUT=$("$BRAID" setup --scaffold --agents "gpt9000" 2>&1)
+has "and refuses a name it has no adapter for" "no adapter for 'gpt9000'" "$OUT"
+has "naming the ones it has" "codex" "$OUT"
+has "and wrote nothing over the answer it already had" "$(listed codex claude)" "$(cat braid.sh)"
+# --add-agent appends to what the file says. It used to append to a hardcoded "claude",
+# so adding an agent to a repository that ran two others quietly dropped one of them.
+"$BRAID" setup --add-agent generic >/dev/null 2>&1
+has "--add-agent appends to the list that is there" "$(listed codex claude generic)" "$(cat braid.sh)"
+"$BRAID" setup --scaffold --agents generic >/dev/null 2>&1
+
+# --- the two halves of an agent CLI -------------------------------------------
+
+# `codex exec` is documented as "run Codex non-interactively": it reads the prompt,
+# works until it decides it is done, and has no way to ask anything. Every seat used to
+# launch it, so `braid setup` under Codex did things to the repository and never reached
+# the conversation it exists to have. The halves are not interchangeable, and the flags
+# they accept are not the same either — exec rejects --ask-for-approval outright.
+CODEX=$(BRAID_HOME="$XDG_DATA_HOME/braid" /bin/bash -c '
+    # shellcheck disable=SC1091
+    . "$BRAID_HOME/lib/agents/codex.sh"
+    printf "seat:%s\nheadless:%s\n" \
+        "$(agent_command /w "" p)" "$(agent_command_headless /w "" p)"')
+hasnt "the codex seat somebody sits in front of is not codex exec" "seat:codex exec" "$CODEX"
+has "it is the CLI that can ask a question" "seat:codex " "$CODEX"
+has "told not to stop for approvals nobody is there to give" "--ask-for-approval never" "$CODEX"
+has "while a detached worker still gets exec" "headless:codex exec" "$CODEX"
+hasnt "which is never handed the flag it rejects" "exec --sandbox workspace-write --ask" "$CODEX"
+
 git add -A
 git commit -qm "chore: braid"
 
