@@ -191,13 +191,20 @@ agent_complexity() {
 
 # Checked only where the adapter says what it accepts. A typo in a model name is
 # otherwise discovered by the agent, in a panel, several minutes later.
+#
+# Compared name by name rather than with `grep -w`, which was both too loose and a
+# regex. Model names are full of hyphens and dots, and neither is a word character to
+# grep: against `gpt-5.6-sol gpt-5.6-terra` it accepted plain `gpt-5`, and `astra`, and
+# would have read the dots in the name it was given as "any character".
 agent_check_model() {
-    local model="${1:-}" valid
+    local model="${1:-}" valid candidate
     [[ -n "$model" ]] || return 0
     valid=$(agent_models)
     [[ -n "$valid" ]] || return 0
-    grep -qw -- "$model" <<<"$valid" ||
-        die "unknown model '$model' for $BRAID_AGENT_RESOLVED (accepts: $valid)"
+    for candidate in $valid; do
+        [[ "$candidate" == "$model" ]] && return 0
+    done
+    die "unknown model '$model' for $BRAID_AGENT_RESOLVED (accepts: $valid)"
 }
 
 # How to put one of braid's own skills in front of an agent. An agent that loads skills
