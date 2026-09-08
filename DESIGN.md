@@ -695,11 +695,21 @@ What must be forbidden is forbidden separately, so it survives that:
 
 - **Windows outside WSL2.** See §4.
 - **Per-slice agent selection.** See §5. Complexity is per slice; the agent is not.
-- **Codex's hooks.** It has them, with the same schema as Claude Code's, so the contract
-  and status could arrive the same way. They are registered per machine rather than per
-  repository, and gated by a trust model — so using them would make "this repository is
-  set up for braid" a fact about a laptop instead of something a team reviewed. That
-  tension is worth resolving deliberately rather than at a release boundary.
+- **Codex's hooks.** It has them, with the same schema as Claude Code's down to the event
+  names, and they can be committed per repository in `<repo>/.codex/hooks.json` exactly
+  as Claude's live in `.claude/settings.json`. So the objection is not that they are
+  global, which is what this entry used to say and what `lib/agents/codex.sh` used to
+  say with it.
+  It is the trust model, and it is not a tension to resolve but a shape that does not
+  fit. Trust is recorded against the **absolute path** of the file a hook came from, so
+  it can be granted to a checkout and never to a repository — and every braid worker is a
+  fresh worktree at a path that has never existed before. A committed hooks file arrives
+  untrusted in each one no matter how often it was trusted in the primary checkout, and
+  an untrusted hooks file does not run and says nothing about it. A push guard somebody
+  wrote, committed and had reviewed would silently never fire.
+  Closing this needs something braid does not control: a trust scope that is not a path.
+  Until then the contract travels in the prompt, status comes from `.braid/finish.sh`,
+  and the per-worktree `pre-push` hook stands in for the `PreToolUse` guard.
 - **A `files` field.** See §6.
 - **A `braid_provision_feature` hook.** See §9.
 - **A pinned engine version per repository** (`braid = "^0.3"`), checked by every command,
