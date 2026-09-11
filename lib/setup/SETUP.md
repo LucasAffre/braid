@@ -71,32 +71,40 @@ braid parses them. Say that explicitly; it is the thing people translate.
 If they use the tracker option, and they already have a label vocabulary, record the
 mapping in the same file. Do not invent labels.
 
-## 3. Which agents this repository supports
+## 3. Which agents this repository supports, and what each seat costs
 
-`braid.sh` lists them, best first. `braid doctor` shows what is installed here.
+**The list is already answered.** `braid setup` asked for it before it opened this
+session — it had to, because you are the first agent on it. Read `BRAID_AGENTS` out of
+`braid.sh`, say it back in one line, and only re-open the question if they want it
+changed. Do not ask it again from scratch.
 
-Adding one is a decision rather than a detection, and it costs something: an agent
-without hooks braid installs into takes its contract from the prompt instead of from
-a session hook, and its
-status from `.braid/finish.sh` instead of a stop hook. Both work. But if a coworker will
-run Codex while they run Claude, the list has to say so, and somebody has to be willing
-to say it works here.
+What is worth adding, once, if the list holds one name: a coworker running a different
+agent needs to appear here, and that costs something — an agent without hooks takes its
+contract from the prompt instead of from a session hook, and its status from
+`.braid/finish.sh` instead of a stop hook. Both work. `braid setup --add-agent <name>`
+is how it gets added later.
 
 ### What each seat and each complexity costs
 
-Run `braid doctor` and **show them the resolved table** — which model each seat gets and
-which model a `low`, `standard` and `high` slice gets. Do not skip this because the
-adapter already has an answer: that answer is a default somebody else chose, it is the
-single biggest lever on what a wave costs, and this is the only moment anyone is looking.
+**Also already asked.** `braid setup` showed the resolved table and offered to change it
+before this session opened — it had to, because the model running this session is one of
+the rows. Run `braid doctor`, show them where it landed, and confirm it in one line.
 
-Ask one question: *is that the right shape for this repository?* Then record only what
-they want changed, in `braid.sh`:
+Two things are worth checking rather than restating:
 
-    : "${BRAID_MODEL_DESIGN:=…}"  : "${BRAID_MODEL_ORCHESTRATE:=…}"
+- **Rows that say "the CLI chooses".** For an agent whose adapter maps nothing — Codex is
+  one — that means every seat and every complexity level runs the same model, whatever
+  their CLI is configured for, so `complexity: low` and `complexity: high` cost the same.
+  That is a fine answer for a repository that does not care, and a surprise for one that
+  thought it had tiers. Say which of the two this is.
+- **Names.** Only offer a model name you have seen the installed CLI list — `claude` and
+  `codex` both have their own picker. Do not recall one from training; those move, and a
+  wrong one fails at launch rather than at the moment you wrote it.
+
+Record changes in `braid.sh`, where setup put the others:
+
+    : "${BRAID_MODEL_DESIGN:=…}"  : "${BRAID_MODEL_ORCHESTRATE:=…}"  : "${BRAID_MODEL_WORK:=…}"
     : "${BRAID_MODEL_LOW:=…}"  : "${BRAID_MODEL_STANDARD:=…}"  : "${BRAID_MODEL_HIGH:=…}"
-
-For an agent whose adapter maps nothing — Codex is one — there is no default to show and
-the same question has to be answered from scratch.
 
 ## 4. How this house decides what to build
 

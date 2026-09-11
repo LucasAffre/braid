@@ -5,6 +5,7 @@
 #   braid setup --scaffold       the deterministic half only, no agent, no questions
 #   braid setup --add-agent NAME add an agent to the ones this repository supports
 #
+#     --agents LIST  which agents this repository supports, best first
 #     --model NAME   which model runs the session   (default: the `design` tier)
 #     --agent NAME   which agent runs it            (default: this repository's first)
 #     --preset NAME  node, python or minimal
@@ -27,6 +28,7 @@ source "$BRAID_HOME/lib/agent.sh"
 
 SCAFFOLD_ONLY=0
 ADD_AGENT=""
+AGENTS_ARG=""
 PRESET=""
 MODEL=""
 ASSUME_YES=0
@@ -39,6 +41,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --add-agent)
             ADD_AGENT="${2:?--add-agent needs a name}"
+            shift 2
+            ;;
+        --agents)
+            AGENTS_ARG="${2:?--agents needs a list, best first}"
             shift 2
             ;;
         --preset)
@@ -59,12 +65,18 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         -h | --help)
-            sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//' >&2
+            sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//' >&2
             exit 0
             ;;
         *) die "unknown argument: $1" ;;
     esac
 done
+
+# Whether the list came from outside this repository. braid_config exports BRAID_AGENTS
+# whatever its source, so the only moment this is answerable is before it runs — and it
+# has to be answerable, because an answer to "which agents does this repository use"
+# must not overrule somebody who exported BRAID_AGENTS for this one command.
+BRAID_AGENTS_ENV="${BRAID_AGENTS:-}"
 
 braid_config
 # A worker implements one slice and never configures the repository. Committing braid.sh
@@ -87,33 +99,303 @@ refuse_worker_seat
 CHECKOUT=$(current_worktree)
 cd "$CHECKOUT" || die "cannot enter $CHECKOUT"
 
-# --- --add-agent --------------------------------------------------------------
+# --- which agents this repository supports --------------------------------------
 
-if [[ -n "$ADD_AGENT" ]]; then
-    [[ -f "$BRAID_HOME/lib/agents/$ADD_AGENT.sh" ]] ||
-        die "no adapter for '$ADD_AGENT' (have: $(cd "$BRAID_HOME/lib/agents" && printf '%s ' *.sh | sed 's/\.sh//g'))"
-    [[ -f braid.sh ]] || die "no braid.sh yet — run braid setup first"
-    if grep -q "BRAID_AGENTS.*\b$ADD_AGENT\b" braid.sh; then
-        note "braid.sh already lists $ADD_AGENT"
-        exit 0
-    fi
-    python3 - "$ADD_AGENT" <<'PY'
+# What braid.sh itself says, as against what this process resolved: the environment and
+# ~/.config/braid/config both outrank the file, so $BRAID_AGENTS is the wrong thing to
+# append to when the thing being edited is the file.
+agents_listed() {
+    [[ -f braid.sh ]] || return 0
+    python3 - <<'PY'
+import pathlib
+import re
+
+text = pathlib.Path("braid.sh").read_text(encoding="utf-8")
+match = re.search(r'(?m)^: "\$\{BRAID_AGENTS:=([^}]*)\}"', text)
+print(" ".join(match.group(1).split()) if match else "")
+PY
+}
+
+# Set one `: "${VAR:=value}"` in braid.sh — rewritten where the line exists, appended
+# where it does not. Always the `:=` form, which is what lets the environment win for a
+# single command without editing a committed file.
+#
+# A third argument is a heading for whatever is being appended, written once. Every other
+# line in this file explains itself; a block of six assignments arriving at the end with
+# nothing over them reads like something that fell in.
+braid_sh_set() {
+    python3 - "$1" "$2" "${3:-}" <<'PY'
 import pathlib
 import re
 import sys
 
-name = sys.argv[1]
+name, value, heading = sys.argv[1], sys.argv[2], sys.argv[3]
 path = pathlib.Path("braid.sh")
 text = path.read_text(encoding="utf-8")
-pattern = re.compile(r'(: "\$\{BRAID_AGENTS:=)([^}]*)(\}")')
-match = pattern.search(text)
-if match:
-    path.write_text(pattern.sub(rf"\g<1>\g<2> {name}\g<3>", text, count=1), encoding="utf-8")
+pattern = re.compile(r'(?m)^(: "\$\{%s:=)([^}]*)(\}")' % re.escape(name))
+if pattern.search(text):
+    # A literal replacement, never a template: re.sub reads \g and \1 in a replacement
+    # string, and everything being written here came from somebody typing it.
+    text = pattern.sub(lambda m: m.group(1) + value + m.group(3), text, count=1)
 else:
-    text += f'\n: "${{BRAID_AGENTS:=claude {name}}}"\n'
-    path.write_text(text, encoding="utf-8")
-print(f"braid.sh now supports {name}")
+    lines = text.rstrip("\n").split("\n")
+    block = ""
+    if heading and heading not in text:
+        block = "\n\n# " + heading + "\n"
+    elif lines and lines[-1].startswith(': "${BRAID_'):
+        # Several of these are appended in a row, and a blank line between each turns
+        # one decision into a scattered list.
+        block = "\n"
+    else:
+        block = "\n\n"
+    text = "\n".join(lines) + block + ': "${%s:=%s}"' % (name, value) + "\n"
+path.write_text(text, encoding="utf-8")
 PY
+}
+
+# Order is the decision — BRAID_AGENTS is read best-first — so duplicates are dropped
+# rather than sorted away.
+agents_write() {
+    local name seen="" ordered=""
+    for name in $1; do
+        case " $seen " in *" $name "*) continue ;; esac
+        seen="$seen $name"
+        ordered="$ordered $name"
+    done
+    braid_sh_set BRAID_AGENTS "${ordered# }"
+}
+
+# Asked once, at the moment braid.sh is created, and never again — the list is a
+# decision about a repository, and a decision made once is not a question to re-ask on
+# every run. What this machine has is shown as evidence and never written on its own:
+# detecting PATH and committing the winner is how one laptop configures a team.
+#
+# It belongs here rather than in the session below, because the session is itself
+# launched by one of these agents. A repository whose people run Codex used to be
+# scaffolded `BRAID_AGENTS=claude` and then handed a Claude session to be told about
+# it — the wrong agent, asking the wrong question, after the answer was already written.
+agents_ask() {
+    local installed shipped answer name reply=""
+    installed=$(agents_installed || true)
+    shipped=$(agents_shipped)
+
+    echo >&2
+    note "which agents will this repository use?"
+    if [[ -n "$installed" ]]; then
+        info "installed here:  $installed"
+    else
+        meh "none of braid's agents are on your PATH"
+    fi
+    info "braid has an adapter for:  $shipped"
+    info "'generic' is any CLI at all, through BRAID_AGENT_CMD — see braid doctor"
+    info "a decision, not a detection: a coworker's agent belongs here too"
+
+    while :; do
+        printf '\n  best first, space separated%s: ' "${installed:+ [$installed]}" >&2
+        read -r answer || answer=""
+        [[ -z "$answer" ]] && answer="$installed"
+        [[ -z "$answer" ]] && {
+            warn "nothing chosen — braid.sh keeps the $PRESET preset's list"
+            return 1
+        }
+        reply=""
+        for name in $answer; do
+            if [[ ! -f "$BRAID_HOME/lib/agents/$name.sh" ]]; then
+                warn "no adapter for '$name' — braid has: $shipped"
+                reply=""
+                break
+            fi
+            reply="$reply $name"
+        done
+        [[ -n "$reply" ]] && break
+    done
+
+    # Named but not installed is allowed and worth saying out loud. It is the normal
+    # case for a team — the list is what this repository supports, not what this desk
+    # can run — but it is also exactly what a typo looks like.
+    for name in $reply; do
+        agent_usable "$name" ||
+            meh "$name is not installed here; braid will skip it until it is"
+    done
+
+    printf '%s' "${reply# }"
+}
+
+# --- which agent and model runs each seat ---------------------------------------
+
+# What a seat resolves to right now: "<agent> <model>", or nothing when no agent in the
+# repository's list is installed here. Loaded in a subshell, because agent_load sources
+# an adapter into the shell that calls it and there are six of these.
+seat_now() {
+    (
+        agent_load "${1:?seat}" 2>/dev/null || exit 1
+        printf '%s %s' "$BRAID_AGENT_RESOLVED" "$(agent_model "$1")"
+    ) 2>/dev/null
+}
+
+# The same for a complexity level, which has no agent of its own: a slice says how much
+# judgement the work needs and the agent on the `work` seat says what that is here.
+level_now() {
+    (
+        agent_load work 2>/dev/null || exit 1
+        agent_complexity "${1:?level}"
+    ) 2>/dev/null
+}
+
+# Refused the way the seat itself would refuse it, but without taking setup down with
+# it: agent_check_model dies, which is right when a wave is about to start and wrong
+# when somebody is typing an answer and can simply be asked again.
+model_ok() {
+    (
+        agent_load "${1:?seat}" 2>/dev/null || exit 0
+        agent_check_model "$2"
+    ) >/dev/null 2>&1
+}
+
+# How an empty model reads. An adapter that names none is not missing anything: it means
+# the CLI picks, which is the right answer for a vendor whose names move faster than a
+# committed file can.
+shown() { printf '%s' "${1:-(the CLI chooses)}"; }
+
+# One answer, with the current value as the default and empty meaning "keep it".
+ask_value() {
+    local label="${1:?label}" current="${2:-}" answer
+    printf '  %-22s [%s]: ' "$label" "$(shown "$current")" >&2
+    read -r answer || answer=""
+    printf '%s' "$answer"
+}
+
+# Ask for one model, refuse what the seat's agent would refuse, and report the
+# assignment rather than performing it. It runs inside a command substitution, so it
+# cannot write anything the caller would see — which is the whole reason the answers are
+# collected first and applied once, together.
+ask_model() {
+    local seat="${1:?seat}" label="${2:?label}" current="${3:-}" tier="${4:-$1}" model
+    while :; do
+        model=$(ask_value "$label" "$current")
+        [[ -n "$model" ]] || return 0
+        if model_ok "$seat" "$model"; then
+            printf '%s %s' "$(seat_var MODEL "$tier")" "$model"
+            return 0
+        fi
+        warn "that is not a model $(seat_now "$seat" | cut -d' ' -f1) accepts"
+    done
+}
+
+# The table, then one question about the whole of it.
+#
+# This is the largest lever there is on what a wave costs, and every value in it is a
+# default from an adapter — a guess about somebody else's budget. It is also the only
+# moment anybody is looking: after this, the table is something you have to know to go
+# and ask `braid doctor` for.
+#
+# Asked here rather than in the session below for the same reason the agent list is: the
+# session is opened by the design seat, so its model is already spent by the time an
+# agent could ask you about it.
+seats_ask() {
+    local seat level agent model answer row writes="" agents=0
+
+    for seat in $BRAID_AGENTS; do
+        agents=$((agents + 1))
+    done
+
+    echo >&2
+    note "which agent and model runs each seat?"
+    for seat in design orchestrate work; do
+        row=$(seat_now "$seat")
+        [[ -n "$row" ]] || {
+            meh "no agent resolves for the $seat seat — nothing to ask about yet"
+            return 1
+        }
+        info "$(printf '%-13s %-9s %s' "$seat" "${row%% *}" "$(shown "${row#* }")")"
+    done
+    echo >&2
+    note "and what a slice's complexity means, on the work seat?"
+    for level in low standard high; do
+        info "$(printf '%-13s %-9s %s' "$level" "" "$(shown "$(level_now "$level")")")"
+    done
+    echo >&2
+    info "every value above is the adapter's default — a guess about somebody else's"
+    info "budget — and it is the biggest lever there is on what a wave costs."
+
+    printf '\n  change any of it? [y/N] ' >&2
+    read -r answer || answer=""
+    case "$answer" in
+        [yY]*) ;;
+        *) return 0 ;;
+    esac
+    echo >&2
+
+    for seat in design orchestrate work; do
+        row=$(seat_now "$seat")
+        # Only where there is a choice to make. A repository that supports one agent
+        # answered this one question ago.
+        if [[ "$agents" -gt 1 ]]; then
+            agent=$(ask_value "$seat agent" "${row%% *}")
+            if [[ -n "$agent" ]]; then
+                if agent_supported "$agent" && agent_usable "$agent"; then
+                    # Written and exported at once: the seats below resolve against it,
+                    # and so does the session this command opens when it is done.
+                    braid_sh_set "$(seat_var AGENT "$seat")" "$agent" \
+                        "Which agent takes which seat. Only the seats pinned here; the rest fall to BRAID_AGENTS, in order."
+                    export "$(seat_var AGENT "$seat")=$agent"
+                    row=$(seat_now "$seat")
+                elif agent_supported "$agent"; then
+                    warn "'$agent' is not installed here — left alone"
+                else
+                    warn "'$agent' is not in this repository's list ($BRAID_AGENTS) — left alone"
+                fi
+            fi
+        fi
+        answer=$(ask_model "$seat" "$seat model" "${row#* }")
+        [[ -z "$answer" ]] || writes="$writes$answer
+"
+    done
+
+    for level in low standard high; do
+        answer=$(ask_model work "complexity: $level" "$(level_now "$level")" "$level")
+        [[ -z "$answer" ]] || writes="$writes$answer
+"
+    done
+
+    [[ -n "$writes" ]] || {
+        note "nothing changed — every seat keeps the adapter's default"
+        return 0
+    }
+
+    # Written together, under a heading, rather than one line at a time as they were
+    # answered. Six assignments scattered down a file nobody reads twice are six things
+    # to find later; a block with a sentence over it is one.
+    # A here-string, not a pipe: a pipe puts the loop in a subshell and the exports
+    # below would be lost with it — and the design seat's model has to reach the session
+    # this command opens in a moment, which braid_config read braid.sh too early to see.
+    while read -r var value; do
+        [[ -n "$var" ]] || continue
+        braid_sh_set "$var" "$value" \
+            "What each seat and each complexity level costs. braid doctor resolves the whole table."
+        export "$var=$value"
+    done <<<"$writes"
+    ok "braid.sh records what you changed; the rest stays the adapter's"
+}
+
+# --- --add-agent --------------------------------------------------------------
+
+if [[ -n "$ADD_AGENT" ]]; then
+    [[ -f "$BRAID_HOME/lib/agents/$ADD_AGENT.sh" ]] ||
+        die "no adapter for '$ADD_AGENT' (have: $(agents_shipped))"
+    [[ -f braid.sh ]] || die "no braid.sh yet — run braid setup first"
+    # What the file says, or — when it says nothing — what this repository effectively
+    # supports today. The old code appended to a hardcoded "claude", which quietly
+    # narrowed a repository that had never narrowed itself.
+    BRAID_AGENTS_LISTED=$(agents_listed)
+    [[ -n "$BRAID_AGENTS_LISTED" ]] || BRAID_AGENTS_LISTED="$BRAID_AGENTS"
+    for listed in $BRAID_AGENTS_LISTED; do
+        [[ "$listed" == "$ADD_AGENT" ]] || continue
+        note "braid.sh already lists $ADD_AGENT"
+        exit 0
+    done
+    agents_write "$BRAID_AGENTS_LISTED $ADD_AGENT"
+    note "braid.sh now supports $ADD_AGENT"
     warn "commit this — it is a decision about the repository, not about your machine"
     exit 0
 fi
@@ -135,12 +417,60 @@ if [[ -z "$PRESET" ]]; then
     fi
 fi
 
+FRESH=0
 if [[ -f braid.sh ]]; then
     ok "braid.sh kept (--preset to start over from a template)"
 else
     cp "$BRAID_HOME/lib/templates/braid.$PRESET.sh" braid.sh ||
         die "no preset '$PRESET' (expected: node, python, minimal)"
     ok "braid.sh from the $PRESET preset"
+    FRESH=1
+fi
+
+# Told, asked, or left alone — in that order. Left alone covers a re-run (the answer is
+# already committed) and a run with nobody in front of it: a prompt nobody can see is
+# worse than the default it was guarding, and this command runs in CI.
+CHOSEN=""
+if [[ -n "$AGENTS_ARG" ]]; then
+    for name in $AGENTS_ARG; do
+        [[ -f "$BRAID_HOME/lib/agents/$name.sh" ]] ||
+            die "no adapter for '$name' (have: $(agents_shipped))"
+    done
+    CHOSEN="$AGENTS_ARG"
+elif [[ "$FRESH" -eq 1 && "$SCAFFOLD_ONLY" -eq 0 && "$ASSUME_YES" -eq 0 && -t 0 ]]; then
+    CHOSEN=$(agents_ask) || CHOSEN=""
+fi
+
+if [[ -n "$CHOSEN" ]]; then
+    agents_write "$CHOSEN"
+    ok "braid.sh supports: $CHOSEN"
+    # The session below is opened by the first of these, so the answer has to reach this
+    # process and not only the file. The environment still outranks it — somebody who
+    # exported BRAID_AGENTS said something about *this run*, and answering a question
+    # about the repository does not overrule that.
+    [[ -n "${BRAID_AGENTS_ENV:-}" ]] || export BRAID_AGENTS="$CHOSEN"
+fi
+
+# Whatever route got here — asked, told, or a braid.sh somebody else committed — this is
+# the last moment before a session is opened, and "the list in the file names nothing
+# this machine can run" is a thing to hear now rather than as a resolution failure. Not
+# said when the environment set the list, where disagreeing with the file is the point.
+if [[ -z "${BRAID_AGENTS_ENV:-}" ]]; then
+    LISTED=$(agents_listed)
+    for name in $LISTED; do
+        agent_usable "$name" && LISTED="" && break
+    done
+    [[ -z "$LISTED" ]] || warn "$(printf '%s\n' \
+        "braid.sh supports '$LISTED', and none of those is installed here." \
+        "  installed:  $(agents_installed || echo none)" \
+        "  braid setup --agents '<best first>'    say what this repository uses")"
+fi
+
+# Which model each seat and each complexity level gets. Under the same conditions as the
+# question above, and immediately after it, because it is the same conversation: you have
+# just said which agents run here, and this is what they cost.
+if [[ "$FRESH" -eq 1 && "$SCAFFOLD_ONLY" -eq 0 && "$ASSUME_YES" -eq 0 && -t 0 ]]; then
+    seats_ask || true
 fi
 
 mkdir -p "$BRAID_FEATURES_DIR"

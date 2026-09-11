@@ -45,9 +45,9 @@ checkout, so a hook a feature adds mid-flight governs that feature's own run.
 
 | | |
 |---|---|
-| `BRAID_AGENTS` | which agents this repository supports, best first (`claude codex cursor-agent generic`). A committed decision, narrowed by `braid setup --add-agent` |
+| `BRAID_AGENTS` | which agents this repository supports, best first (`claude codex generic`). A committed decision: `braid setup` asks for it when it first writes `braid.sh`, `braid setup --agents "codex claude"` restates it, `braid setup --add-agent NAME` appends to it |
 | `BRAID_AGENT` | one machine's or one session's preference |
-| `BRAID_AGENT_DESIGN`<br>`BRAID_AGENT_ORCHESTRATE`<br>`BRAID_AGENT_WORK` | override one seat |
+| `BRAID_AGENT_DESIGN`<br>`BRAID_AGENT_ORCHESTRATE`<br>`BRAID_AGENT_WORK` | pin one seat. In `braid.sh` it is a repository decision — the orchestrator on the agent with hooks, workers on another — and `braid setup` offers to write them |
 | `BRAID_AGENT_CMD` | for `BRAID_AGENT=generic`: the command line, with `{model}` and `{prompt}` |
 
 Resolution, highest priority first:
@@ -79,7 +79,8 @@ worker's model comes from the complexity its slice declares.
 
 Those defaults come from the agent adapter — `lib/agents/claude.sh` — which is the one
 file a vendor's model names are allowed to appear in. They are a guess about somebody
-else's budget, and they are the largest lever on what a wave costs, so:
+else's budget, and they are the largest lever on what a wave costs, so `braid setup` puts
+the resolved table in front of you on a first run and writes down whatever you change:
 
 ```bash
 : "${BRAID_MODEL_DESIGN:=sonnet}"      # in braid.sh — committed, for everyone
@@ -87,8 +88,40 @@ braid setup --model sonnet             # this session
 braid spawn 04-migration --model opus  # this one slice
 ```
 
-An adapter that maps nothing — Codex — lets its own CLI choose unless you set these.
+An adapter that maps nothing — Codex — lets its own CLI choose unless you set these, so
+every seat and every complexity level runs whatever `~/.codex/config.toml` names. That is
+a real answer, not a gap: it follows you when you change it there. It does mean a
+`complexity:` level buys nothing until you say what it means here. Codex also has no tier
+alias to lean on — Claude's `opus` and `sonnet` stay put while the model behind them
+moves, while every name Codex offers carries its version — so take the names from the
+CLI's own picker rather than from memory.
+
 `braid doctor` prints the resolved table for every seat and every level.
+
+### How the agent is launched
+
+Every agent CLI has at least two of them: the one a person sits in front of, and the one
+that runs with nobody watching. braid uses both — the first for `setup`, `design`,
+`orchestrate` and a worker in a visible pane, the second for a detached worker — and they
+do not take the same flags.
+
+| | |
+|---|---|
+| `BRAID_AGENT_ARGS` | Codex: the flags both halves take (`--sandbox workspace-write`) |
+| `BRAID_APPROVAL_POLICY` | Codex: what the interactive half does about approvals (`never`). `codex exec` has nobody to ask and rejects the flag outright |
+| `BRAID_PERMISSION_MODE` | Claude Code: `--permission-mode` (`bypassPermissions`) |
+
+`braid doctor` probes these against the installed CLI's own `--help` and says so when a
+flag has been renamed — before a wave, rather than as eight workers that died at launch.
+
+If your CLI has moved further than a flag, replace the launch command outright from
+`braid.sh` rather than editing an adapter that `braid upgrade` will overwrite:
+
+```bash
+braid_agent_command() {           # $1 worktree  $2 model  $3 prompt
+    printf 'my-agent --prompt %q' "$3"
+}
+```
 
 ---
 

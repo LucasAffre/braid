@@ -262,6 +262,41 @@ else
     printf '%s\n' "$stale" | sed 's/^/          /'
 fi
 
+# --- what --help actually prints ----------------------------------------------
+
+# Every command's usage is its own header comment, printed by line number. Add a flag to
+# the list and the range no longer covers it; add nothing and the range quietly runs past
+# the block into the code — `braid setup --help` ended with `set -uo pipefail`, and three
+# commands were doing it. Nothing fails, so nobody finds out except the person reading it.
+if drift=$(python3 - <<'PY'
+import pathlib
+import re
+
+bad = []
+for path in sorted(pathlib.Path("lib").glob("*.sh")):
+    text = path.read_text(encoding="utf-8")
+    match = re.search(r"sed -n '2,(\d+)p' \"\$0\"", text)
+    if not match:
+        continue
+    printed = int(match.group(1))
+    lines = text.splitlines()
+    end = 1
+    for number, line in enumerate(lines[1:], start=2):
+        if line.startswith("#"):
+            end = number
+        elif line.strip():
+            break
+    if printed != end:
+        bad.append(f"{path}: prints to {printed}, the comment block ends at {end}")
+print("\n".join(bad))
+PY
+) && [[ -z "$drift" ]]; then
+    ok "every --help stops where its comment block does"
+else
+    bad "a --help range does not match its usage block:"
+    printf '%s\n' "$drift" | sed 's/^/          /'
+fi
+
 # --- unbraced expansions before multibyte text --------------------------------
 
 # bash 3.2 reads the bytes of a following multibyte character as part of the variable

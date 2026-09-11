@@ -123,6 +123,19 @@ agents_installed() {
     [[ -n "$found" ]] && printf '%s' "${found# }"
 }
 
+# Every adapter braid ships, whether or not this machine can run it. The other half of
+# the pair above: `agents_installed` answers "what could this machine run today",
+# this one answers "what could this repository choose" — which is the question a team
+# is actually deciding, and the reason a name that is not on this list is a typo
+# rather than a preference.
+agents_shipped() {
+    local name found=""
+    for name in "$BRAID_HOME"/lib/agents/*.sh; do
+        found="$found $(basename "$name" .sh)"
+    done
+    printf '%s' "${found# }"
+}
+
 # Source the adapter for a seat. After this the agent_* functions below are the
 # adapter's, and BRAID_AGENT_RESOLVED says which one answered.
 agent_load() {
@@ -178,13 +191,20 @@ agent_complexity() {
 
 # Checked only where the adapter says what it accepts. A typo in a model name is
 # otherwise discovered by the agent, in a panel, several minutes later.
+#
+# Compared name by name rather than with `grep -w`, which was both too loose and a
+# regex. Model names are full of hyphens and dots, and neither is a word character to
+# grep: against `gpt-5.6-sol gpt-5.6-terra` it accepted plain `gpt-5`, and `astra`, and
+# would have read the dots in the name it was given as "any character".
 agent_check_model() {
-    local model="${1:-}" valid
+    local model="${1:-}" valid candidate
     [[ -n "$model" ]] || return 0
     valid=$(agent_models)
     [[ -n "$valid" ]] || return 0
-    grep -qw -- "$model" <<<"$valid" ||
-        die "unknown model '$model' for $BRAID_AGENT_RESOLVED (accepts: $valid)"
+    for candidate in $valid; do
+        [[ "$candidate" == "$model" ]] && return 0
+    done
+    die "unknown model '$model' for $BRAID_AGENT_RESOLVED (accepts: $valid)"
 }
 
 # How to put one of braid's own skills in front of an agent. An agent that loads skills

@@ -50,8 +50,12 @@ braid setup      # scaffolds braid.sh and the hooks, then opens a session to fil
 braid doctor     # confirms this machine can run a wave
 ```
 
-`braid setup` is re-runnable: run it again when the test suite changes or a coworker
-arrives with a different agent.
+The first run asks two things before it opens anything: which agents this repository
+uses, and what each seat and complexity level costs. Both have to come first — a repo
+whose people run Codex should not have its setup session opened by Claude, and the model
+that session runs on is one of the rows in the table. `braid setup`
+is re-runnable: run it again when the test suite changes or a coworker arrives with a
+different agent.
 
 ## Requirements
 
@@ -120,8 +124,9 @@ braid setup --model sonnet            # or just this session
 braid spawn 04-migration --model opus # or just this slice
 ```
 
-`braid doctor` prints the whole table resolved, and `braid setup` asks you to confirm it
-rather than assuming you agree. [`docs/configuration.md`](docs/configuration.md) has both
+`braid setup` puts that table in front of you the first time it writes a `braid.sh` —
+every seat, every complexity level, and what each one resolves to — and writes down only
+what you change. `braid doctor` prints it resolved at any time. [`docs/configuration.md`](docs/configuration.md) has both
 families in full — the seats and the complexity levels are different variables and answer
 different questions.
 
@@ -129,8 +134,18 @@ different questions.
 
 Which agents are installed is a fact about a machine; which agents a repository supports
 is a committed decision. A preference outside the repository's list is an error rather
-than a silent fallback — adding one means confirming the table above holds *here*, so it
-goes through `braid setup --add-agent <name>`.
+than a silent fallback — adding one means confirming the table above holds *here*.
+
+`braid setup` asks the question the first time it writes a `braid.sh`, before it opens
+anything: it shows what is on your PATH and what braid has an adapter for, and you say
+which of them this repository uses, best first. That has to come first, because the
+session that fills in the rest of `braid.sh` is itself opened by the first agent on that
+list. Afterwards:
+
+```bash
+braid setup --agents "codex claude"   # say it outright, or re-decide it
+braid setup --add-agent codex         # add one to what is already there
+```
 
 ### Where workers run
 

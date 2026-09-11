@@ -119,6 +119,116 @@ has "and points at where the whole table is" "braid doctor" "$OUT"
 # With nobody there to answer, it proceeds. Blocking on a prompt that cannot be seen is
 # worse than the thing the prompt guards against — it would hang every CI run.
 hasnt "and does not stop to ask when no one is there" "open it?" "$OUT"
+hasnt "nor which agents this repository uses" "best first" "$OUT"
+
+# Which agents a repository supports is a decision it makes and commits, and until it
+# could be said at scaffold time every new braid.sh said `claude` whatever the person
+# actually ran — after which setup opened a Claude session to tell them about it. The
+# wrong agent, asking the wrong question, about an answer already written down.
+listed() {
+    # shellcheck disable=SC2016  # the braid.sh line is literal text, not an expansion
+    printf ': "${BRAID_AGENTS:=%s}"' "$*"
+}
+"$BRAID" setup --scaffold --agents "codex claude" >/dev/null 2>&1
+has "setup takes the repository's agents, best first" "$(listed codex claude)" "$(cat braid.sh)"
+OUT=$("$BRAID" setup --scaffold --agents "gpt9000" 2>&1)
+has "and refuses a name it has no adapter for" "no adapter for 'gpt9000'" "$OUT"
+has "naming the ones it has" "codex" "$OUT"
+has "and wrote nothing over the answer it already had" "$(listed codex claude)" "$(cat braid.sh)"
+# --add-agent appends to what the file says. It used to append to a hardcoded "claude",
+# so adding an agent to a repository that ran two others quietly dropped one of them.
+"$BRAID" setup --add-agent generic >/dev/null 2>&1
+has "--add-agent appends to the list that is there" "$(listed codex claude generic)" "$(cat braid.sh)"
+"$BRAID" setup --scaffold --agents generic >/dev/null 2>&1
+
+# --- the two halves of an agent CLI -------------------------------------------
+
+# `codex exec` is documented as "run Codex non-interactively": it reads the prompt,
+# works until it decides it is done, and has no way to ask anything. Every seat used to
+# launch it, so `braid setup` under Codex did things to the repository and never reached
+# the conversation it exists to have. The halves are not interchangeable, and the flags
+# they accept are not the same either — exec rejects --ask-for-approval outright.
+CODEX=$(BRAID_HOME="$XDG_DATA_HOME/braid" /bin/bash -c '
+    # shellcheck disable=SC1091
+    . "$BRAID_HOME/lib/agents/codex.sh"
+    printf "seat:%s\nheadless:%s\n" \
+        "$(agent_command /w "" p)" "$(agent_command_headless /w "" p)"')
+hasnt "the codex seat somebody sits in front of is not codex exec" "seat:codex exec" "$CODEX"
+has "it is the CLI that can ask a question" "seat:codex " "$CODEX"
+has "told not to stop for approvals nobody is there to give" "--ask-for-approval never" "$CODEX"
+has "while a detached worker still gets exec" "headless:codex exec" "$CODEX"
+hasnt "which is never handed the flag it rejects" "exec --sandbox workspace-write --ask" "$CODEX"
+
+# --- what setup writes into braid.sh, and what reads it back -----------------
+
+BS="$REPO/braid.sh"
+cp "$BS" "$TMP/braid.sh.keep"
+
+# One writer under all of it — the agents question, --agents, --add-agent, and the seat
+# table. Rewritten in place where the line exists, so a repository never ends up holding
+# two BRAID_AGENTS lines that disagree.
+"$BRAID" setup --scaffold --agents "codex" >/dev/null 2>&1
+is "the list is rewritten in place, never duplicated" "1" \
+    "$(grep -c 'BRAID_AGENTS:=' "$BS" | tr -d ' ')"
+
+# The seat table is the largest lever there is on what a wave costs, and until setup
+# asked, reaching it meant knowing that `braid doctor` prints a table and that the
+# variables behind it exist. Nothing here is asked without a terminal, though: this
+# command runs in CI, and a prompt nobody can see is worse than the default it guards.
+OUT=$("$BRAID" setup </dev/null 2>&1)
+hasnt "the seat table is not asked about with nobody there" "change any of it?" "$OUT"
+
+# What setup writes has to be what braid reads. These are the two layers that outrank
+# BRAID_AGENTS, so a braid.sh that pins them is the whole point of asking per seat —
+# an orchestrator on the agent with hooks, workers on the one you are paying for.
+cat >"$BS" <<'SH'
+: "${BRAID_AGENTS:=generic claude}"
+: "${BRAID_AGENT_WORK:=generic}"
+: "${BRAID_MODEL_STANDARD:=zebra}"
+SH
+OUT=$(env -u BRAID_AGENTS "$BRAID" doctor 2>&1)
+has "a seat pinned in braid.sh is the seat that resolves" "work         generic  via BRAID_AGENT_WORK" "$OUT"
+has "and the model it names is the model reported" "zebra" "$OUT"
+
+cp "$TMP/braid.sh.keep" "$BS"
+
+# --- the two questions, answered ----------------------------------------------
+
+# Both are guarded by `-t 0`, so redirecting stdin exercises the branch that skips them.
+# Under a pty they are answered instead. Still no agent: these are braid's own questions,
+# asked in its own voice, and until now the only way to reach them was by hand.
+phase "the questions setup asks before it opens anything"
+ASKED="$TMP/asked"
+mkdir -p "$ASKED"
+(
+    cd "$ASKED" || exit 1
+    git init -q -b main
+    git config user.email braid@example.com
+    git config user.name braid
+    printf 'x\n' >app.txt
+    git add -A
+    git commit -qm initial
+) >/dev/null 2>&1
+
+# agents, then yes to the table, then a model for design and nothing for the rest, then
+# no to opening a session.
+OUT=$(cd "$ASKED" && python3 "$SOURCE/test/ask.py" 'generic|y|zebra||||||n' -- "$BRAID" setup 2>&1)
+has "it asks which agents this repository uses" "best first" "$OUT"
+has "showing what is installed rather than deciding it" "installed here:" "$OUT"
+has "then what each seat and each level costs" "change any of it?" "$OUT"
+has "naming every seat" "orchestrate" "$OUT"
+has "and every complexity level" "complexity: high" "$OUT"
+# shellcheck disable=SC2016  # the braid.sh assignment is literal text, not an expansion
+is "the answer reaches braid.sh" 'zebra' \
+    "$(sed -n 's/^: "${BRAID_MODEL_DESIGN:=\(.*\)}"$/\1/p' "$ASKED/braid.sh")"
+has "under a heading, not as a loose line" "each complexity level costs" "$(cat "$ASKED/braid.sh")"
+# braid_config read braid.sh before any of this was written, so an answer that only
+# reached the file would be an answer the session it opens never sees.
+has "and reaches the session about to be opened" "model: zebra" "$OUT"
+has "while an empty answer keeps the adapter's" "the CLI chooses" "$OUT"
+refute "leaving no line for what was not changed" \
+    grep -q 'BRAID_MODEL_ORCHESTRATE' "$ASKED/braid.sh"
+
 git add -A
 git commit -qm "chore: braid"
 

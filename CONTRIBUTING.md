@@ -63,7 +63,14 @@ Named after the change, never after a version or a date: a branch called
 `feat/v0.2-project-hooks` claims that merging it makes v0.2 exist, and it does not — a
 release is a tag somebody cuts. Never a person's name, and never a ticket number alone.
 
-`main` is always releasable. Work happens on a branch and arrives by pull request.
+`main` is always releasable, and that is the rule the rest of this follows from. Work
+from outside arrives on a branch, by pull request — that is what this section is for, and
+it is how a change gets reviewed by somebody who did not write it.
+
+Maintainers push to `main` directly, and that is not an exemption from anything. CI runs
+on `push` to `main` as well as on pull requests, so the same suites gate both, and
+nothing reaches anybody until a release tag is cut — `install.sh` and `braid upgrade`
+resolve the latest tag, never the branch. The tag is the gate, not the merge.
 
 ## Commits
 
