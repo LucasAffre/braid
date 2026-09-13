@@ -91,13 +91,14 @@ command-line template, is a first-class option rather than a fallback.
 |---|---|---|---|---|
 | **Claude Code** | `SessionStart` hook | `Stop` hook, which can push back on a dirty tree | `PreToolUse` guard **and** `pre-push` | a whole feature |
 | **Codex** | top of the prompt, and on disk | `.braid/finish.sh` at exit | `pre-push` | a whole feature |
+| **Cursor** (`cursor-agent`) | top of the prompt, and on disk | `.braid/finish.sh` at exit | `pre-push` | the adapter, against the installed CLI. No feature yet |
 | **`generic`** | top of the prompt, and on disk | `.braid/finish.sh` at exit | `pre-push` | the test suite, every CI run. No real agent |
 
 Status is written **for** the agent, never by it, so it happens whether the agent
 cooperated, crashed, or was never installed.
 
 ```bash
-: "${BRAID_AGENTS:=claude codex}"    # in braid.sh — supported here, best first
+: "${BRAID_AGENTS:=claude codex cursor-agent}"    # in braid.sh — supported, best first
 BRAID_AGENT_ORCHESTRATE=claude       # the seat that can push and open PRs
 BRAID_AGENT_WORK=codex               # the workers
 
@@ -347,9 +348,9 @@ shadow. `braid doctor` prints all of it resolved, for this machine and this repo
 
 ## Skills
 
-Two, installed into the shared `~/.agents/skills/` and linked from `~/.claude/skills` and
-`~/.codex/skills`. They are markdown, so an agent that loads skills gets the name and one
-that does not gets the text.
+Two, installed into the shared `~/.agents/skills/` and linked from `~/.claude/skills`,
+`~/.codex/skills` and `~/.cursor/skills`. They are markdown, so an agent that loads
+skills gets the name and one that does not gets the text.
 
 | | |
 |---|---|
