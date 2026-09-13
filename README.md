@@ -108,14 +108,19 @@ BRAID_AGENT_CMD='my-agent run --model {model} --prompt {prompt}'
 ### Which model and reasoning effort run what
 
 Seats and slices are named by **tier**, never by a vendor's model name: a slice says how
-much judgement its work needs, and repository configuration plus the adapter decide
-what that means here. For Claude Code the design seat is `fable`, the orchestrator
-`opus`, and a slice's `low` / `standard` / `high` are `haiku` / `sonnet` / `opus`.
+much judgement its work needs, and the adapter says what that means here. For Claude Code
+the design seat is `fable`, the orchestrator `opus`, and a slice's `low` / `standard` /
+`high` are `haiku` / `sonnet` / `opus`. For `cursor-agent` the design and orchestrate
+seats are `cursor-grok-4.6-high`, the work seat is `composer-2.5`, and a slice's `low` /
+`standard` / `high` are `composer-2.5-fast` / `composer-2.5` / `cursor-grok-4.6-high` —
+Cursor's IDs are namespaced and tiered, and the bare `grok-4.6` is not one of them.
 
 **Those are the adapter's defaults, not a decision anybody made about your repository** —
 and they are the largest lever on what a wave costs, so override whatever does not fit.
 Reasoning effort is a separate setting with the portable values `low`, `medium`, `high`
-and `xhigh`:
+and `xhigh`. Cursor does not expose a separate effort control, so braid refuses a
+configured effort when that adapter resolves instead of pretending the model tier
+changed:
 
 ```bash
 : "${BRAID_MODEL_DESIGN:=sonnet}"     # in braid.sh — committed, for everyone
